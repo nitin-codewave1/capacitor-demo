@@ -1,181 +1,144 @@
 name: Build & Deploy
 
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+  on:
+    push:
+      branches: [main]
+    pull_request:
+      branches: [main]
+    workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
-env:
-  NODE_VERSION: "18"
-  RUBY_VERSION: "3.2"
-  JAVA_VERSION: "11"
-  BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
+  env:
+    NODE_VERSION: "18"
+    RUBY_VERSION: "3.2"
+    JAVA_VERSION: "11"
+    BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
 
-jobs:
-  # ──────────────────────────────────────────────
-  # Stage 1: Web build + Capacitor sync
-  # ──────────────────────────────────────────────
-  web-build:
-    name: Web Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  jobs:
+    android:
+      name: Android Build
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "yarn"
+        - name: Setup Node.js
+          uses: actions/setup-node@v4
+          with:
+            node-version: ${{ env.NODE_VERSION }}
+            cache: "yarn"
 
-      - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        - name: Install dependencies
+          run: yarn install --frozen-lockfile
 
-      - name: Build web assets
-        run: yarn build
+        - name: Build web assets
+          run: yarn build
 
-      - name: Capacitor sync
-        run: npx cap sync
+        - name: Capacitor sync
+          run: npx cap sync android
 
-      - name: Upload Android project
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-project
-          path: android/
-          retention-days: 1
+        - name: Make gradlew executable
+          run: chmod +x android/gradlew
 
-      - name: Upload iOS project
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-project
-          path: ios/
-          retention-days: 1
+        - name: Setup Java
+          uses: actions/setup-java@v4
+          with:
+            distribution: "temurin"
+            java-version: ${{ env.JAVA_VERSION }}
 
-  # ──────────────────────────────────────────────
-  # Stage 2a: Android build
-  # ──────────────────────────────────────────────
-  android:
-    name: Android Build
-    needs: web-build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+        - name: Setup Ruby
+          uses: ruby/setup-ruby@v1
+          with:
+            ruby-version: ${{ env.RUBY_VERSION }}
+            bundler-cache: true
 
-      - name: Download Android project
-        uses: actions/download-artifact@v4
-        with:
-          name: android-project
-          path: android/
+        - name: Build debug APK (PRs)
+          if: github.event_name == 'pull_request'
+          run: bundle exec fastlane build_debug
+          working-directory: android
 
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
+        - name: Build release APK & AAB (main)
+          if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+          run: bundle exec fastlane build_release
+          working-directory: android
+          env:
+            ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+            ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+            ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: "temurin"
-          java-version: ${{ env.JAVA_VERSION }}
+        - name: Upload APK artifact
+          if: success()
+          uses: actions/upload-artifact@v4
+          with:
+            name: android-apk
+            path: android/app/build/outputs/apk/**/*.apk
+            retention-days: 14
+            if-no-files-found: ignore
 
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: ${{ env.RUBY_VERSION }}
-          bundler-cache: true
+        - name: Upload AAB artifact
+          if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+          uses: actions/upload-artifact@v4
+          with:
+            name: android-aab
+            path: android/app/build/outputs/bundle/**/*.aab
+            retention-days: 14
+            if-no-files-found: ignore
 
-      - name: Build debug APK (PRs)
-        if: github.event_name == 'pull_request'
-        run: bundle exec fastlane build_debug
-        working-directory: android
+    ios:
+      name: iOS Build
+      runs-on: macos-14
+      steps:
+        - uses: actions/checkout@v4
 
-      - name: Build release APK & AAB (main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: bundle exec fastlane build_release
-        working-directory: android
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        - name: Setup Node.js
+          uses: actions/setup-node@v4
+          with:
+            node-version: ${{ env.NODE_VERSION }}
+            cache: "yarn"
 
-      - name: Upload APK artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-apk
-          path: android/app/build/outputs/apk/**/*.apk
-          retention-days: 14
-          if-no-files-found: ignore
+        - name: Install dependencies
+          run: yarn install --frozen-lockfile
 
-      - name: Upload AAB artifact
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-aab
-          path: android/app/build/outputs/bundle/**/*.aab
-          retention-days: 14
-          if-no-files-found: ignore
+        - name: Build web assets
+          run: yarn build
 
-  # ──────────────────────────────────────────────
-  # Stage 2b: iOS build + TestFlight
-  # ──────────────────────────────────────────────
-  ios:
-    name: iOS Build
-    needs: web-build
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
+        - name: Capacitor sync
+          run: npx cap sync ios
 
-      - name: Download iOS project
-        uses: actions/download-artifact@v4
-        with:
-          name: ios-project
-          path: ios/
+        - name: Setup Ruby
+          uses: ruby/setup-ruby@v1
+          with:
+            ruby-version: ${{ env.RUBY_VERSION }}
+            bundler-cache: true
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "yarn"
+        - name: Build only (PRs)
+          if: github.event_name == 'pull_request'
+          run: bundle exec fastlane build_only
+          working-directory: ios/App
 
-      - name: Install Node dependencies
-        run: yarn install --frozen-lockfile
+        - name: Build and push to TestFlight (main)
+          if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.ASC_KEY_ID != ''
+          run: bundle exec fastlane beta
+          working-directory: ios/App
+          env:
+            ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+            ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+            ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+            BUILD_NUMBER: ${{ github.run_number }}
+            APPLE_ID: ${{ secrets.APPLE_ID }}
+            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            ITC_TEAM_ID: ${{ secrets.ITC_TEAM_ID }}
+            MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+            MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+            MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
 
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: ${{ env.RUBY_VERSION }}
-          bundler-cache: true
-
-      - name: Build only (PRs)
-        if: github.event_name == 'pull_request'
-        run: bundle exec fastlane build_only
-        working-directory: ios/App
-
-      - name: Build and push to TestFlight (main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.ASC_KEY_ID != ''
-        run: bundle exec fastlane beta
-        working-directory: ios/App
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
-          BUILD_NUMBER: ${{ github.run_number }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          ITC_TEAM_ID: ${{ secrets.ITC_TEAM_ID }}
-          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-
-      - name: Upload IPA artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-ipa
-          path: ios/App/build/*.ipa
-          retention-days: 14
-          if-no-files-found: ignore
+        - name: Upload IPA artifact
+          if: success()
+          uses: actions/upload-artifact@v4
+          with:
+            name: ios-ipa
+            path: ios/App/build/*.ipa
+            retention-days: 14
+            if-no-files-found: ignore
