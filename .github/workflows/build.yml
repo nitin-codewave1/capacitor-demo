@@ -15,6 +15,7 @@ env:
   NODE_VERSION: "18"
   RUBY_VERSION: "3.2"
   JAVA_VERSION: "11"
+  BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
 
 jobs:
   # ──────────────────────────────────────────────
@@ -101,19 +102,22 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Upload APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: android/app/build/outputs/apk/**/*.apk
           retention-days: 14
+          if-no-files-found: ignore
 
       - name: Upload AAB artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: android-aab
           path: android/app/build/outputs/bundle/**/*.aab
           retention-days: 14
+          if-no-files-found: ignore
 
   # ──────────────────────────────────────────────
   # Stage 2b: iOS build + TestFlight
@@ -122,8 +126,6 @@ jobs:
     name: iOS Build
     needs: web-build
     runs-on: macos-14
-    env:
-      HAS_IOS_SECRETS: ${{ secrets.ASC_KEY_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -154,23 +156,23 @@ jobs:
         working-directory: ios/App
 
       - name: Build and push to TestFlight (main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_IOS_SECRETS != ''
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.ASC_KEY_ID != ''
         run: bundle exec fastlane beta
         working-directory: ios/App
         env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
           BUILD_NUMBER: ${{ github.run_number }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           ITC_TEAM_ID: ${{ secrets.ITC_TEAM_ID }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
 
       - name: Upload IPA artifact
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
