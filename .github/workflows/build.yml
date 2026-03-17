@@ -122,6 +122,8 @@ jobs:
     name: iOS Build
     needs: web-build
     runs-on: macos-14
+    env:
+      HAS_IOS_SECRETS: ${{ secrets.ASC_KEY_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -152,7 +154,7 @@ jobs:
         working-directory: ios/App
 
       - name: Build and push to TestFlight (main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.ASC_KEY_ID != ''
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_IOS_SECRETS != ''
         run: bundle exec fastlane beta
         working-directory: ios/App
         env:
