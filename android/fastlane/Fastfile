@@ -1,0 +1,44 @@
+default_platform(:android)
+
+platform :android do
+  desc "Build debug APK"
+  lane :build_debug do
+    gradle(
+      task: "assembleDebug",
+      project_dir: "."
+    )
+  end
+
+  desc "Build signed release APK"
+  lane :build_release_apk do
+    gradle(
+      task: "assembleRelease",
+      project_dir: ".",
+      properties: signing_properties
+    )
+  end
+
+  desc "Build signed release AAB (App Bundle)"
+  lane :build_release_aab do
+    gradle(
+      task: "bundleRelease",
+      project_dir: ".",
+      properties: signing_properties
+    )
+  end
+
+  desc "Build both release APK and AAB"
+  lane :build_release do
+    build_release_apk
+    build_release_aab
+  end
+
+  def signing_properties
+    {
+      "android.injected.signing.store.file" => File.expand_path("../app/release.keystore", __dir__),
+      "android.injected.signing.store.password" => ENV["ANDROID_KEYSTORE_PASSWORD"],
+      "android.injected.signing.key.alias" => ENV["ANDROID_KEY_ALIAS"],
+      "android.injected.signing.key.password" => ENV["ANDROID_KEY_PASSWORD"]
+    }
+  end
+end
