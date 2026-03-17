@@ -71,6 +71,9 @@ jobs:
           name: android-project
           path: android/
 
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -149,7 +152,7 @@ jobs:
         working-directory: ios/App
 
       - name: Build and push to TestFlight (main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.ASC_KEY_ID != ''
         run: bundle exec fastlane beta
         working-directory: ios/App
         env:
